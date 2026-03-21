@@ -32,11 +32,18 @@ export interface ChatResponse {
 }
 
 function loadAgentPersona(agentId: string): string {
-  const agentPath = path.join(os.homedir(), '.claude', 'agents', agentId, `${agentId}.md`)
-  if (existsSync(agentPath)) {
-    return readFileSync(agentPath, 'utf-8')
+  // 1. Project-bundled personas (works on Vercel and locally)
+  const bundledPath = path.join(process.cwd(), 'data', 'agents', `${agentId}.md`)
+  if (existsSync(bundledPath)) {
+    return readFileSync(bundledPath, 'utf-8')
   }
-  return `Você é ${agentId}, um especialista de alta performance.`
+  // 2. Local ~/.claude/agents (works in local Claude Code sessions)
+  const localPath = path.join(os.homedir(), '.claude', 'agents', agentId, `${agentId}.md`)
+  if (existsSync(localPath)) {
+    return readFileSync(localPath, 'utf-8')
+  }
+  // 3. Fallback generic persona
+  return `Você é ${agentId}, um especialista de alta performance da SiruzTec. Responda com profundidade e expertise na sua área de especialização, sempre levando em consideração o contexto específico do negócio do cliente.`
 }
 
 function buildSystemPrompt(agentId: string, profile: BusinessProfile, plan: string): string {
