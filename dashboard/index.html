@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Control Center</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #7d8590;
+    --blue: #388bfd;
+    --green: #3fb950;
+    --red: #f85149;
+    --amber: #d29922;
+    --purple: #a371f7;
+    --cyan: #39d353;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', monospace; }
+
+  /* ── Layout ── */
+  .layout { display: grid; grid-template-rows: 52px 1fr; height: 100vh; }
+  .main { display: grid; grid-template-columns: 300px 1fr; overflow: hidden; }
+
+  /* ── Header ── */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 20px; border-bottom: 1px solid var(--border);
+    background: var(--panel);
+  }
+  header h1 { font-size: 16px; font-weight: 600; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); display: inline-block; margin-right: 6px; animation: pulse 2s infinite; }
+  .status-dot.disconnected { background: var(--red); animation: none; }
+  @keyframes pulse { 0%,100%{ opacity:1 } 50%{ opacity:.4 } }
+  .model-badge { font-size: 11px; color: var(--muted); background: var(--bg); border: 1px solid var(--border); padding: 2px 8px; border-radius: 12px; }
+
+  /* ── Sidebar ── */
+  .sidebar { border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+  .sidebar-section { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+  .sidebar-section h2 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 10px; }
+
+  /* Agent selector */
+  .agent-btn {
+    width: 100%; text-align: left; padding: 10px 12px; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--bg); color: var(--text);
+    cursor: pointer; margin-bottom: 6px; transition: border-color .15s;
+    font-size: 13px;
+  }
+  .agent-btn:hover { border-color: var(--blue); }
+  .agent-btn.selected { border-color: var(--blue); background: rgba(56,139,253,.1); }
+  .agent-btn .agent-name { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .agent-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .agent-btn .agent-desc { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .agent-tools { font-size: 10px; color: var(--purple); margin-top: 4px; }
+
+  /* Task form */
+  .task-form { flex: 1; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+  .task-form textarea {
+    width: 100%; flex: 1; background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); border-radius: 6px; padding: 10px 12px; font-size: 13px;
+    resize: none; outline: none; font-family: inherit;
+  }
+  .task-form textarea:focus { border-color: var(--blue); }
+  .run-btn {
+    width: 100%; padding: 10px; background: var(--blue); color: #fff; border: none;
+    border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer;
+    transition: opacity .15s;
+  }
+  .run-btn:hover { opacity: .85; }
+  .run-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+  /* ── Content ── */
+  .content { display: grid; grid-template-rows: auto 1fr; overflow: hidden; }
+
+  /* Active agents */
+  .agents-row { padding: 14px 20px; border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 10px; }
+  .agents-row.empty { color: var(--muted); font-size: 13px; align-items: center; min-height: 60px; }
+
+  .agent-card {
+    border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px;
+    min-width: 220px; max-width: 300px; background: var(--panel);
+    position: relative; overflow: hidden;
+  }
+  .agent-card .card-bar { position: absolute; top: 0; left: 0; right: 0; height: 3px; }
+  .agent-card .card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .agent-card .card-name { font-size: 13px; font-weight: 600; }
+  .agent-card .card-status { font-size: 11px; padding: 2px 7px; border-radius: 10px; font-weight: 600; }
+  .status-running { background: rgba(56,139,253,.15); color: var(--blue); }
+  .status-completed { background: rgba(63,185,80,.15); color: var(--green); }
+  .status-error { background: rgba(248,81,73,.15); color: var(--red); }
+  .status-stopped { background: rgba(125,133,144,.15); color: var(--muted); }
+  .agent-card .card-task { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; }
+  .agent-card .card-meta { font-size: 10px; color: var(--muted); margin-top: 6px; }
+  .agent-card .stop-btn { font-size: 10px; color: var(--red); cursor: pointer; border: none; background: none; float: right; }
+
+  /* Spinner */
+  .spinner { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--blue); border-top-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; margin-right: 4px; vertical-align: middle; }
+  @keyframes spin { to{ transform: rotate(360deg); } }
+
+  /* ── Log panel ── */
+  .log-panel { overflow-y: auto; padding: 12px 20px; font-size: 12px; line-height: 1.7; }
+  .log-panel::-webkit-scrollbar { width: 6px; }
+  .log-panel::-webkit-scrollbar-track { background: transparent; }
+  .log-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .log-entry { display: flex; gap: 8px; margin-bottom: 2px; }
+  .log-time { color: var(--muted); flex-shrink: 0; width: 60px; }
+  .log-badge { flex-shrink: 0; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 700; width: 76px; text-align: center; }
+  .badge-text   { background: rgba(230,237,243,.06); color: var(--text); }
+  .badge-tool   { background: rgba(210,153,34,.15); color: var(--amber); }
+  .badge-result { background: rgba(63,185,80,.1);  color: var(--green); }
+  .badge-start  { background: rgba(56,139,253,.15); color: var(--blue); }
+  .badge-done   { background: rgba(63,185,80,.15);  color: var(--green); }
+  .badge-error  { background: rgba(248,81,73,.15);  color: var(--red); }
+  .badge-system { background: rgba(125,133,144,.1); color: var(--muted); }
+  .log-agent { font-weight: 700; flex-shrink: 0; width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .log-content { flex: 1; word-break: break-word; white-space: pre-wrap; }
+
+  /* inline code snippets */
+  .log-content code { background: rgba(255,255,255,.06); padding: 0 4px; border-radius: 3px; }
+
+  /* Clear log button */
+  .content-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 20px; border-bottom: 1px solid var(--border); background: var(--panel); }
+  .content-header span { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
+  .clear-btn { font-size: 11px; color: var(--muted); border: none; background: none; cursor: pointer; padding: 2px 8px; border-radius: 4px; }
+  .clear-btn:hover { color: var(--text); background: var(--border); }
+</style>
+</head>
+<body>
+
+<div class="layout">
+  <!-- Header -->
+  <header>
+    <h1>
+      <span class="status-dot" id="status-dot"></span>
+      <span id="biz-name">Agent Control Center</span>
+    </h1>
+    <div style="display:flex;gap:10px;align-items:center">
+      <span class="model-badge" id="model-badge">claude-opus-4-6</span>
+      <span style="font-size:12px;color:var(--muted)" id="connection-label">Connecting…</span>
+    </div>
+  </header>
+
+  <div class="main">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <h2>Agents</h2>
+        <div id="agent-selector"></div>
+      </div>
+
+      <div class="task-form">
+        <h2 style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px">Task</h2>
+        <textarea id="task-input" placeholder="Describe the task for the selected agent…" rows="6"></textarea>
+        <button class="run-btn" id="run-btn" onclick="submitTask()">▶ Run Agent</button>
+      </div>
+    </aside>
+
+    <!-- Content area -->
+    <div class="content">
+      <!-- Active agent cards -->
+      <div class="agents-row empty" id="agents-row">
+        <span>No active agents — submit a task to get started.</span>
+      </div>
+
+      <!-- Log panel -->
+      <div style="display:flex;flex-direction:column;overflow:hidden">
+        <div class="content-header">
+          <span>Live Log</span>
+          <button class="clear-btn" onclick="clearLog()">Clear</button>
+        </div>
+        <div class="log-panel" id="log-panel"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────
+let ws = null;
+let config = {};
+let agents = {};           // agent_id → state
+let selectedAgent = null;  // name of selected agent config
+let autoScroll = true;
+
+// ── WebSocket ───────────────────────────────────────
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+
+  ws.onopen = () => {
+    setConnected(true);
+    startPing();
+  };
+
+  ws.onclose = () => {
+    setConnected(false);
+    setTimeout(connect, 3000);
+  };
+
+  ws.onmessage = (e) => {
+    const ev = JSON.parse(e.data);
+    handleEvent(ev);
+  };
+}
+
+function startPing() {
+  setInterval(() => ws?.readyState === 1 && ws.send(JSON.stringify({type:'ping'})), 20000);
+}
+
+function setConnected(ok) {
+  const dot = document.getElementById('status-dot');
+  const lbl = document.getElementById('connection-label');
+  dot.className = 'status-dot' + (ok ? '' : ' disconnected');
+  lbl.textContent = ok ? 'Connected' : 'Reconnecting…';
+}
+
+// ── Event handler ───────────────────────────────────
+function handleEvent(ev) {
+  switch (ev.type) {
+    case 'init':
+      config = ev.config;
+      updateHeader();
+      buildAgentSelector();
+      ev.agents.forEach(a => { agents[a.id] = a; });
+      renderAgentCards();
+      break;
+
+    case 'agent_started':
+      agents[ev.agent.id] = ev.agent;
+      renderAgentCards();
+      logEntry(ev.agent.id, 'start', '▶ Task started', ev.agent.color);
+      logEntry(ev.agent.id, 'system', ev.agent.task, ev.agent.color);
+      break;
+
+    case 'agent_turn':
+      logEntry(ev.agent_id, 'system', `Turn ${ev.turn}`, agentColor(ev.agent_id));
+      break;
+
+    case 'agent_text':
+      appendText(ev.agent_id, ev.text, agentColor(ev.agent_id));
+      break;
+
+    case 'tool_start':
+      logEntry(ev.agent_id, 'tool', `⚙ ${ev.tool}`, agentColor(ev.agent_id));
+      break;
+
+    case 'tool_result':
+      logEntry(ev.agent_id, 'result', `✓ ${ev.tool}: ${ev.snippet}`, agentColor(ev.agent_id));
+      break;
+
+    case 'agent_completed':
+      if (agents[ev.agent_id]) agents[ev.agent_id].status = 'completed';
+      renderAgentCards();
+      logEntry(ev.agent_id, 'done', '✓ Completed', agentColor(ev.agent_id));
+      break;
+
+    case 'agent_error':
+      if (agents[ev.agent_id]) { agents[ev.agent_id].status = 'error'; agents[ev.agent_id].error = ev.error; }
+      renderAgentCards();
+      logEntry(ev.agent_id, 'error', `✗ ${ev.error}`, agentColor(ev.agent_id));
+      break;
+
+    case 'agent_stopped':
+      if (agents[ev.agent_id]) agents[ev.agent_id].status = 'stopped';
+      renderAgentCards();
+      logEntry(ev.agent_id, 'system', '◼ Stopped', agentColor(ev.agent_id));
+      break;
+  }
+}
+
+// ── UI helpers ──────────────────────────────────────
+function updateHeader() {
+  document.getElementById('biz-name').textContent = config.name || 'Agent Control Center';
+  document.getElementById('model-badge').textContent = config.model || 'claude-opus-4-6';
+  document.title = config.name || 'Agent Control Center';
+}
+
+function buildAgentSelector() {
+  const el = document.getElementById('agent-selector');
+  el.innerHTML = '';
+  (config.agents || []).forEach((a, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'agent-btn' + (i === 0 ? ' selected' : '');
+    btn.dataset.name = a.name;
+    btn.innerHTML = `
+      <div class="agent-name">
+        <span class="agent-dot" style="background:${a.color||'#3b82f6'}"></span>
+        ${a.name}
+      </div>
+      <div class="agent-desc">${a.description || ''}</div>
+      <div class="agent-tools">${(a.tools||[]).join(' · ')}</div>
+    `;
+    btn.onclick = () => selectAgent(a.name);
+    el.appendChild(btn);
+    if (i === 0) selectedAgent = a.name;
+  });
+}
+
+function selectAgent(name) {
+  selectedAgent = name;
+  document.querySelectorAll('.agent-btn').forEach(b => {
+    b.classList.toggle('selected', b.dataset.name === name);
+  });
+}
+
+function renderAgentCards() {
+  const row = document.getElementById('agents-row');
+  const active = Object.values(agents);
+  if (active.length === 0) {
+    row.className = 'agents-row empty';
+    row.innerHTML = '<span>No active agents — submit a task to get started.</span>';
+    return;
+  }
+  row.className = 'agents-row';
+  row.innerHTML = active.map(a => {
+    const statusClass = `status-${a.status}`;
+    const spinner = a.status === 'running' ? '<span class="spinner"></span>' : '';
+    const stopBtn = a.status === 'running'
+      ? `<button class="stop-btn" onclick="stopAgent('${a.id}')">■ Stop</button>`
+      : '';
+    const dur = a.completed_at
+      ? `${((new Date(a.completed_at) - new Date(a.started_at))/1000).toFixed(1)}s`
+      : `turn ${a.turn||0}`;
+    return `
+      <div class="agent-card">
+        <div class="card-bar" style="background:${a.color||'#3b82f6'}"></div>
+        <div class="card-top">
+          <span class="card-name">${a.name}</span>
+          <span class="card-status ${statusClass}">${spinner}${a.status}</span>
+        </div>
+        <div class="card-task" title="${a.task}">${a.task}</div>
+        <div class="card-meta">${dur} ${stopBtn}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+// ── Log helpers ─────────────────────────────────────
+let currentTextEntry = null;  // { agent_id, el }
+
+function logEntry(agentId, type, content, color) {
+  currentTextEntry = null;  // reset streaming buffer
+  const panel = document.getElementById('log-panel');
+  const name = agentName(agentId);
+  const badgeClass = {
+    text:'badge-text', tool:'badge-tool', result:'badge-result',
+    start:'badge-start', done:'badge-done', error:'badge-error', system:'badge-system'
+  }[type] || 'badge-system';
+
+  const entry = document.createElement('div');
+  entry.className = 'log-entry';
+  entry.innerHTML = `
+    <span class="log-time">${now()}</span>
+    <span class="log-badge ${badgeClass}">${type.toUpperCase()}</span>
+    <span class="log-agent" style="color:${color||'var(--text)'}">${name}</span>
+    <span class="log-content">${escHtml(content)}</span>
+  `;
+  panel.appendChild(entry);
+  if (autoScroll) panel.scrollTop = panel.scrollHeight;
+}
+
+function appendText(agentId, text, color) {
+  const panel = document.getElementById('log-panel');
+
+  // If we have an ongoing text entry for this agent, append to it
+  if (currentTextEntry && currentTextEntry.agent_id === agentId) {
+    currentTextEntry.el.textContent += text;
+    if (autoScroll) panel.scrollTop = panel.scrollHeight;
+    return;
+  }
+
+  // Start a new text entry
+  const name = agentName(agentId);
+  const entry = document.createElement('div');
+  entry.className = 'log-entry';
+  const contentEl = document.createElement('span');
+  contentEl.className = 'log-content';
+  contentEl.textContent = text;
+  entry.innerHTML = `
+    <span class="log-time">${now()}</span>
+    <span class="log-badge badge-text">TEXT</span>
+    <span class="log-agent" style="color:${color||'var(--text)'}">${name}</span>
+  `;
+  entry.appendChild(contentEl);
+  panel.appendChild(entry);
+  currentTextEntry = { agent_id: agentId, el: contentEl };
+  if (autoScroll) panel.scrollTop = panel.scrollHeight;
+}
+
+function agentName(id) {
+  return agents[id]?.name || id;
+}
+
+function agentColor(id) {
+  return agents[id]?.color || '#7d8590';
+}
+
+function now() {
+  return new Date().toLocaleTimeString('en', {hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function clearLog() {
+  document.getElementById('log-panel').innerHTML = '';
+  currentTextEntry = null;
+}
+
+// ── Task submission ──────────────────────────────────
+async function submitTask() {
+  const prompt = document.getElementById('task-input').value.trim();
+  if (!prompt) { alert('Enter a task first.'); return; }
+  if (!selectedAgent) { alert('Select an agent first.'); return; }
+
+  const btn = document.getElementById('run-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Starting…';
+
+  try {
+    const res = await fetch('/api/tasks', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ prompt, agent_name: selectedAgent }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      alert('Error: ' + JSON.stringify(err.detail));
+    } else {
+      document.getElementById('task-input').value = '';
+    }
+  } catch(e) {
+    alert('Request failed: ' + e.message);
+  }
+
+  btn.disabled = false;
+  btn.textContent = '▶ Run Agent';
+}
+
+async function stopAgent(id) {
+  await fetch(`/api/agents/${id}`, { method: 'DELETE' });
+}
+
+// Ctrl+Enter to submit
+document.getElementById('task-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submitTask();
+});
+
+// Pause auto-scroll when user scrolls up
+document.getElementById('log-panel').addEventListener('scroll', function() {
+  autoScroll = this.scrollHeight - this.scrollTop - this.clientHeight < 40;
+});
+
+connect();
+</script>
+</body>
+</html>
