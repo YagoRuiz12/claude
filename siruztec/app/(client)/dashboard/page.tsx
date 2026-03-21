@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { createServerSupabaseClient } from "@/lib/supabase";
+import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { getSquadsForPlan } from "@/lib/agents";
 import OrgChart from "@/components/OrgChart";
 import { Button } from "@/components/ui/button";

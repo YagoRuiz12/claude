@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase";
+import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { chat } from "@/lib/claude";
 import { isAgentAvailable } from "@/lib/agents";
 import type { Message } from "@/lib/claude";

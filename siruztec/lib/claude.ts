@@ -100,11 +100,11 @@ export async function chat(
   const content = response.content[0].type === 'text' ? response.content[0].text : ''
 
   // Check for routing instruction
-  const routingMatch = content.match(/ROUTING:\s*({.*?})/s)
+  const routingMatch = content.match(/ROUTING:\s*(\{[\s\S]*?\})/)
   if (routingMatch) {
     try {
       const routing = JSON.parse(routingMatch[1])
-      const cleanContent = content.replace(/ROUTING:\s*({.*?})/s, '').trim()
+      const cleanContent = content.replace(/ROUTING:\s*\{[\s\S]*?\}/, '').trim()
 
       if (routing.upgrade_hint) {
         return {

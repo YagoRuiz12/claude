@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { createServerSupabaseClient } from "@/lib/supabase";
+import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { getAgentById, getSquadByAgentId, getSquadsForPlan, isAgentAvailable } from "@/lib/agents";
 import ChatDialog from "@/components/ChatDialog";
 import { Button } from "@/components/ui/button";
