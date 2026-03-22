@@ -151,11 +151,29 @@ create table if not exists usage_logs (
   created_at timestamptz default now()
 );
 
+-- Sessões freelancer (contratação avulsa de especialistas)
+create table if not exists freelance_sessions (
+  id uuid primary key default uuid_generate_v4(),
+  tenant_id uuid references tenants(id) on delete cascade,
+  agent_id text not null,
+  stripe_payment_id text not null,
+  messages_used integer not null default 0,
+  messages_limit integer not null default 20,
+  expires_at timestamptz not null default (now() + interval '24 hours'),
+  created_at timestamptz default now()
+);
+
+-- Colunas de onboarding conversacional (idempotentes)
+alter table business_profiles
+  add column if not exists partial_profile jsonb default '{}',
+  add column if not exists onboarding_messages jsonb default '[]';
+
 -- Row Level Security
 alter table tenants enable row level security;
 alter table business_profiles enable row level security;
 alter table conversations enable row level security;
 alter table usage_logs enable row level security;
+alter table freelance_sessions enable row level security;
 
 -- Policies (idempotent: drop before create)
 drop policy if exists "Users see own tenant" on tenants;
@@ -176,6 +194,12 @@ create policy "Users see own conversations" on conversations
 
 drop policy if exists "Users see own usage" on usage_logs;
 create policy "Users see own usage" on usage_logs
+  for all using (
+    tenant_id in (select id from tenants where owner_id = auth.uid())
+  );
+
+drop policy if exists "Users see own freelance sessions" on freelance_sessions;
+create policy "Users see own freelance sessions" on freelance_sessions
   for all using (
     tenant_id in (select id from tenants where owner_id = auth.uid())
   );
@@ -241,6 +265,31 @@ info "Criando produto DOMINANCE (R\$697/mês)..."
 PRICE_DOMINANCE=$(create_stripe_price "SiruzTec DOMINANCE" 69700 "dominance")
 [[ "$PRICE_DOMINANCE" =~ ^price_ ]] && ok "DOMINANCE: $PRICE_DOMINANCE" || fail "Erro ao criar produto DOMINANCE"
 
+# Produtos one-time (freelancer)
+create_stripe_price_onetime() {
+  local name=$1 amount=$2 lookup_key=$3
+  PRODUCT_ID=$(curl -s \
+    -u "${STRIPE_SECRET_KEY}:" \
+    -d "name=${name}" \
+    "https://api.stripe.com/v1/products" | jq -r '.id')
+  PRICE_ID=$(curl -s \
+    -u "${STRIPE_SECRET_KEY}:" \
+    -d "currency=brl" \
+    -d "unit_amount=${amount}" \
+    -d "product=${PRODUCT_ID}" \
+    -d "lookup_key=${lookup_key}" \
+    "https://api.stripe.com/v1/prices" | jq -r '.id')
+  echo "$PRICE_ID"
+}
+
+info "Criando produto FREELANCER SCALE (R\$19 one-time)..."
+PRICE_FREELANCE_SCALE=$(create_stripe_price_onetime "SiruzTec Freelancer SCALE" 1900 "freelance_scale")
+[[ "$PRICE_FREELANCE_SCALE" =~ ^price_ ]] && ok "FREELANCER SCALE: $PRICE_FREELANCE_SCALE" || fail "Erro ao criar produto FREELANCER SCALE"
+
+info "Criando produto FREELANCER DOMINANCE (R\$39 one-time)..."
+PRICE_FREELANCE_DOMINANCE=$(create_stripe_price_onetime "SiruzTec Freelancer DOMINANCE" 3900 "freelance_dominance")
+[[ "$PRICE_FREELANCE_DOMINANCE" =~ ^price_ ]] && ok "FREELANCER DOMINANCE: $PRICE_FREELANCE_DOMINANCE" || fail "Erro ao criar produto FREELANCER DOMINANCE"
+
 # ── Criar .env.local ──────────────────────────────────────────────────────────
 header "Gerando .env.local"
 
@@ -260,6 +309,8 @@ STRIPE_WEBHOOK_SECRET=whsec_PLACEHOLDER
 STRIPE_STARTUP_PRICE_ID=${PRICE_STARTUP}
 STRIPE_SCALE_PRICE_ID=${PRICE_SCALE}
 STRIPE_DOMINANCE_PRICE_ID=${PRICE_DOMINANCE}
+STRIPE_FREELANCE_SCALE_PRICE_ID=${PRICE_FREELANCE_SCALE}
+STRIPE_FREELANCE_DOMINANCE_PRICE_ID=${PRICE_FREELANCE_DOMINANCE}
 
 # App
 NEXT_PUBLIC_APP_URL=${APP_URL}
@@ -290,10 +341,12 @@ add_vercel_env "SUPABASE_SERVICE_ROLE_KEY"          "$SUPABASE_SERVICE_ROLE_KEY"
 add_vercel_env "ANTHROPIC_API_KEY"                  "$ANTHROPIC_API_KEY"
 add_vercel_env "STRIPE_SECRET_KEY"                  "$STRIPE_SECRET_KEY"
 add_vercel_env "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY" "$STRIPE_PUBLISHABLE_KEY"
-add_vercel_env "STRIPE_STARTUP_PRICE_ID"            "$PRICE_STARTUP"
-add_vercel_env "STRIPE_SCALE_PRICE_ID"              "$PRICE_SCALE"
-add_vercel_env "STRIPE_DOMINANCE_PRICE_ID"          "$PRICE_DOMINANCE"
-add_vercel_env "NEXT_PUBLIC_APP_URL"                "$APP_URL"
+add_vercel_env "STRIPE_STARTUP_PRICE_ID"               "$PRICE_STARTUP"
+add_vercel_env "STRIPE_SCALE_PRICE_ID"                 "$PRICE_SCALE"
+add_vercel_env "STRIPE_DOMINANCE_PRICE_ID"             "$PRICE_DOMINANCE"
+add_vercel_env "STRIPE_FREELANCE_SCALE_PRICE_ID"       "$PRICE_FREELANCE_SCALE"
+add_vercel_env "STRIPE_FREELANCE_DOMINANCE_PRICE_ID"   "$PRICE_FREELANCE_DOMINANCE"
+add_vercel_env "NEXT_PUBLIC_APP_URL"                   "$APP_URL"
 add_vercel_env "ADMIN_EMAIL"                        "$ADMIN_EMAIL"
 
 ok "Variáveis de ambiente configuradas"
@@ -368,9 +421,11 @@ echo -e "  ${BOLD}Login:${RESET}    ${APP_URL}/login"
 echo -e "  ${BOLD}Preços:${RESET}   ${APP_URL}/precos"
 echo ""
 echo -e "${BOLD}Stripe Price IDs:${RESET}"
-echo "  STARTUP:   $PRICE_STARTUP"
-echo "  SCALE:     $PRICE_SCALE"
-echo "  DOMINANCE: $PRICE_DOMINANCE"
+echo "  STARTUP:              $PRICE_STARTUP"
+echo "  SCALE:                $PRICE_SCALE"
+echo "  DOMINANCE:            $PRICE_DOMINANCE"
+echo "  FREELANCER SCALE:     $PRICE_FREELANCE_SCALE"
+echo "  FREELANCER DOMINANCE: $PRICE_FREELANCE_DOMINANCE"
 echo ""
 echo -e "${YELLOW}Lembrete: configure o Auth Supabase conforme acima antes de testar login.${RESET}"
 echo ""
