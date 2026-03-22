@@ -84,3 +84,54 @@ export function getUpgradeHint(currentPlan: Plan, agentId: string): string | nul
   if (currentPlan === 'scale') return 'dominance'
   return null
 }
+
+export interface FreelanceSession {
+  id: string
+  agent_id: string
+  messages_used: number
+  messages_limit: number
+  expires_at: string
+}
+
+/** Returns true if the agent is accessible either via plan or an active freelance session */
+export function isAgentAccessibleWithFreelance(
+  plan: Plan,
+  agentId: string,
+  freelanceSessions: FreelanceSession[]
+): boolean {
+  if (isAgentAvailable(plan, agentId)) return true
+  const now = new Date()
+  return freelanceSessions.some(
+    s =>
+      s.agent_id === agentId &&
+      s.messages_used < s.messages_limit &&
+      new Date(s.expires_at) > now
+  )
+}
+
+/** Returns the active freelance session for a given agent, if any */
+export function getActiveFreelanceSession(
+  agentId: string,
+  freelanceSessions: FreelanceSession[]
+): FreelanceSession | null {
+  const now = new Date()
+  return (
+    freelanceSessions.find(
+      s =>
+        s.agent_id === agentId &&
+        s.messages_used < s.messages_limit &&
+        new Date(s.expires_at) > now
+    ) ?? null
+  )
+}
+
+/** Price in BRL cents for a freelance session based on which plan the agent belongs to */
+export function getFreelancePrice(agentId: string): { planTier: string; priceLabel: string } {
+  const squad = getSquadByAgentId(agentId)
+  if (!squad) return { planTier: 'scale', priceLabel: 'R$19' }
+  // If agent is in scale_agents list → R$19, otherwise (dominance-only) → R$39
+  if (squad.scale_agents.includes(agentId)) {
+    return { planTier: 'scale', priceLabel: 'R$19' }
+  }
+  return { planTier: 'dominance', priceLabel: 'R$39' }
+}

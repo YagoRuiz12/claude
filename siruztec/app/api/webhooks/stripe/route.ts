@@ -16,10 +16,23 @@ export async function POST(req: NextRequest) {
 
   const supabase = await createServerSupabaseClient();
 
+  // Assinatura recorrente completada
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session;
-    const { tenant_id, plan } = session.metadata ?? {};
-    if (tenant_id && plan) {
+    const { tenant_id, plan, type: sessionType, agent_id } = session.metadata ?? {};
+
+    if (sessionType === "freelance" && tenant_id && agent_id) {
+      // Contratação avulsa: criar sessão freelancer
+      await supabase.from("freelance_sessions").insert({
+        tenant_id,
+        agent_id,
+        stripe_payment_id: session.payment_intent as string,
+        messages_used: 0,
+        messages_limit: 20,
+        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      });
+    } else if (tenant_id && plan) {
+      // Assinatura: ativar plano
       await supabase.from("tenants").update({
         stripe_customer_id: session.customer as string,
         stripe_subscription_id: session.subscription as string,

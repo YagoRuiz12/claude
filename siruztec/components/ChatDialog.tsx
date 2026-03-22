@@ -5,6 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import RoutingIndicator from "./RoutingIndicator";
 import UpgradePrompt from "./UpgradePrompt";
+import FreelanceSessionBadge from "./FreelanceSessionBadge";
 import { resolveRoutingTarget, buildChatUrl } from "@/lib/routing";
 import { useRouter } from "next/navigation";
 import type { Squad } from "@/lib/agents";
@@ -27,15 +28,17 @@ interface ChatDialogProps {
   agentId: string;
   agentName: string;
   squad: Squad;
+  initialFreelanceRemaining?: number | null;
 }
 
-export default function ChatDialog({ agentId, agentName, squad }: ChatDialogProps) {
+export default function ChatDialog({ agentId, agentName, squad, initialFreelanceRemaining }: ChatDialogProps) {
   const router = useRouter();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [routingEvents, setRoutingEvents] = useState<Map<number, RoutingEvent>>(new Map());
-  const [upgradeInfo, setUpgradeInfo] = useState<{ agentName: string; reason: string; upgradeTo: string } | null>(null);
+  const [upgradeInfo, setUpgradeInfo] = useState<{ agentId: string; agentName: string; reason: string; upgradeTo: string } | null>(null);
+  const [freelanceRemaining, setFreelanceRemaining] = useState<number | null>(initialFreelanceRemaining ?? null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -60,10 +63,14 @@ export default function ChatDialog({ agentId, agentName, squad }: ChatDialogProp
     const data = await res.json();
     setLoading(false);
 
+    // Update freelance remaining count if API returned it
+    if (typeof data.freelance_remaining === "number") {
+      setFreelanceRemaining(data.freelance_remaining);
+    }
+
     if (data.type === "message") {
       setMessages(m => [...m, { role: "assistant", content: data.content }]);
     } else if (data.type === "route") {
-      // Add assistant message + routing event
       const target = resolveRoutingTarget(data.agent);
       setMessages(m => [...m, { role: "assistant", content: data.content ?? "" }]);
       const routingEvent: RoutingEvent = {
@@ -74,12 +81,12 @@ export default function ChatDialog({ agentId, agentName, squad }: ChatDialogProp
         reason: data.reason ?? "",
       };
       setRoutingEvents(prev => new Map(prev).set(newMessages.length, routingEvent));
-      // Auto-redirect after 2s
       setTimeout(() => router.push(buildChatUrl(data.agent)), 2000);
     } else if (data.type === "upgrade") {
       const target = resolveRoutingTarget(data.agent);
       setMessages(m => [...m, { role: "assistant", content: data.content ?? "" }]);
       setUpgradeInfo({
+        agentId: data.agent,
         agentName: target?.agent_name ?? data.agent,
         reason: data.reason ?? "",
         upgradeTo: data.upgrade_to ?? "scale",
@@ -104,10 +111,13 @@ export default function ChatDialog({ agentId, agentName, squad }: ChatDialogProp
         >
           {squad.icon}
         </div>
-        <div>
+        <div className="flex-1">
           <div className="font-semibold text-white">{agentName}</div>
           <div className="text-xs text-zinc-400">{squad.name}</div>
         </div>
+        {freelanceRemaining !== null && (
+          <FreelanceSessionBadge remaining={freelanceRemaining} />
+        )}
       </div>
 
       {/* Messages */}
@@ -117,6 +127,9 @@ export default function ChatDialog({ agentId, agentName, squad }: ChatDialogProp
             <div className="text-4xl mb-3">{squad.icon}</div>
             <p className="font-medium text-zinc-400">{agentName}</p>
             <p className="text-sm mt-1">Como posso ajudar seu negócio hoje?</p>
+            {freelanceRemaining !== null && (
+              <p className="text-xs text-emerald-500 mt-2">⚡ Sessão freelancer ativa · {freelanceRemaining} mensagens disponíveis</p>
+            )}
           </div>
         )}
 
@@ -158,6 +171,7 @@ export default function ChatDialog({ agentId, agentName, squad }: ChatDialogProp
 
         {upgradeInfo && (
           <UpgradePrompt
+            agentId={upgradeInfo.agentId}
             agentName={upgradeInfo.agentName}
             reason={upgradeInfo.reason}
             upgradeTo={upgradeInfo.upgradeTo}
