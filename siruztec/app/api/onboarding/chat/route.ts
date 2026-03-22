@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { generateBusinessSummary } from "@/lib/claude";
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { readFileSync, existsSync } from "fs";
 import path from "path";
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 function loadOnboardingPersona(): string {
   const bundledPath = path.join(process.cwd(), "data", "agents", "onboarding-agent.md");
@@ -34,23 +34,25 @@ export async function POST(req: NextRequest) {
   if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
 
   // Fallback when API key is not configured
-  if (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY === "sua_chave_aqui") {
+  if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === "sua_chave_aqui") {
     return NextResponse.json({
       type: "message",
-      content: "⚠️ Configure sua ANTHROPIC_API_KEY no .env.local para ativar o onboarding com IA.",
+      content: "⚠️ Configure sua OPENAI_API_KEY no .env.local para ativar o onboarding com IA.",
     });
   }
 
   const systemPrompt = loadOnboardingPersona();
 
-  const response = await client.messages.create({
-    model: "claude-sonnet-4-6",
+  const response = await client.chat.completions.create({
+    model: "gpt-4o-mini",
     max_tokens: 1024,
-    system: systemPrompt,
-    messages: messages.map(m => ({ role: m.role, content: m.content })),
+    messages: [
+      { role: "system", content: systemPrompt },
+      ...messages.map(m => ({ role: m.role as "user" | "assistant", content: m.content })),
+    ],
   });
 
-  const content = response.content[0].type === "text" ? response.content[0].text : "";
+  const content = response.choices[0]?.message?.content ?? "";
 
   // Detect PROFILE_COMPLETE signal
   const profileMatch = content.match(/PROFILE_COMPLETE:\s*(\{[\s\S]*?\})/);
@@ -99,3 +101,4 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ type: "message", content });
 }
+

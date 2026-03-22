@@ -1,10 +1,10 @@
-import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
 import { readFileSync, existsSync } from 'fs'
 import path from 'path'
 import os from 'os'
 
-const client = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
 })
 
 export interface BusinessProfile {
@@ -82,10 +82,10 @@ export async function chat(
   profile: BusinessProfile,
   plan: string
 ): Promise<ChatResponse> {
-  if (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY === 'sua_chave_aqui') {
+  if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === 'sua_chave_aqui') {
     return {
       type: 'message',
-      content: '⚠️ Configure sua ANTHROPIC_API_KEY no arquivo .env.local para ativar os agentes. Acesse console.anthropic.com para criar sua chave.'
+      content: '⚠️ Configure sua OPENAI_API_KEY no arquivo .env.local para ativar os agentes. Acesse platform.openai.com para criar sua chave.'
     }
   }
 
@@ -94,15 +94,17 @@ export async function chat(
   // Sliding context window: keep last 15 messages + context_summary injected via system prompt
   const recentMessages = messages.slice(-15)
 
-  const response = await client.messages.create({
-    model: 'claude-sonnet-4-6',
+  const response = await client.chat.completions.create({
+    model: 'gpt-4o',
     max_tokens: 2048,
-    system: systemPrompt,
-    messages: recentMessages.map(m => ({ role: m.role, content: m.content }))
+    messages: [
+      { role: 'system', content: systemPrompt },
+      ...recentMessages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }))
+    ]
   })
 
-  const content = response.content[0].type === 'text' ? response.content[0].text : ''
-  const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
+  const content = response.choices[0]?.message?.content ?? ''
+  const tokensUsed = (response.usage?.prompt_tokens ?? 0) + (response.usage?.completion_tokens ?? 0)
 
   // Check for routing instruction at end of response (match last occurrence)
   const routingMatch = content.match(/ROUTING:\s*(\{[^}]+\})\s*$/)
@@ -138,12 +140,12 @@ export async function chat(
 }
 
 export async function generateBusinessSummary(profile: Omit<BusinessProfile, 'context_summary'>): Promise<string> {
-  if (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY === 'sua_chave_aqui') {
+  if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === 'sua_chave_aqui') {
     return `${profile.company_name} é uma empresa de ${profile.industry} focada em ${profile.target_audience}.`
   }
 
-  const response = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
+  const response = await client.chat.completions.create({
+    model: 'gpt-4o-mini',
     max_tokens: 300,
     messages: [{
       role: 'user',
@@ -161,5 +163,5 @@ Escreva em português, direto ao ponto, como se fosse um briefing interno para a
     }]
   })
 
-  return response.content[0].type === 'text' ? response.content[0].text : ''
+  return response.choices[0]?.message?.content ?? ''
 }
