@@ -16,21 +16,34 @@ export async function POST(req: NextRequest) {
 
   const supabase = await createServerSupabaseClient();
 
-  // Assinatura recorrente completada
+  // Idempotency: skip already-processed events
+  const { data: alreadyProcessed } = await supabase
+    .from("processed_stripe_events")
+    .select("id")
+    .eq("event_id", event.id)
+    .single();
+  if (alreadyProcessed) {
+    return NextResponse.json({ received: true });
+  }
+
+  // Mark event as processed first (prevents duplicate processing on retry)
+  await supabase.from("processed_stripe_events").insert({ event_id: event.id });
+
+  // Checkout completado
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session;
     const { tenant_id, plan, type: sessionType, agent_id } = session.metadata ?? {};
 
     if (sessionType === "freelance" && tenant_id && agent_id) {
-      // Contratação avulsa: criar sessão freelancer
-      await supabase.from("freelance_sessions").insert({
+      // Contratação avulsa: criar sessão freelancer (unique stripe_payment_id garante idempotência)
+      await supabase.from("freelance_sessions").upsert({
         tenant_id,
         agent_id,
         stripe_payment_id: session.payment_intent as string,
         messages_used: 0,
         messages_limit: 20,
         expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-      });
+      }, { onConflict: "stripe_payment_id", ignoreDuplicates: true });
     } else if (tenant_id && plan) {
       // Assinatura: ativar plano
       await supabase.from("tenants").update({

@@ -156,10 +156,16 @@ create table if not exists freelance_sessions (
   id uuid primary key default uuid_generate_v4(),
   tenant_id uuid references tenants(id) on delete cascade,
   agent_id text not null,
-  stripe_payment_id text not null,
+  stripe_payment_id text not null unique,
   messages_used integer not null default 0,
   messages_limit integer not null default 20,
   expires_at timestamptz not null default (now() + interval '24 hours'),
+  created_at timestamptz default now()
+);
+
+-- Idempotência de webhooks Stripe
+create table if not exists processed_stripe_events (
+  event_id text primary key,
   created_at timestamptz default now()
 );
 
@@ -174,6 +180,7 @@ alter table business_profiles enable row level security;
 alter table conversations enable row level security;
 alter table usage_logs enable row level security;
 alter table freelance_sessions enable row level security;
+alter table processed_stripe_events enable row level security;
 
 -- Policies (idempotent: drop before create)
 drop policy if exists "Users see own tenant" on tenants;
@@ -203,6 +210,26 @@ create policy "Users see own freelance sessions" on freelance_sessions
   for all using (
     tenant_id in (select id from tenants where owner_id = auth.uid())
   );
+
+-- RPC: incremento atômico de sessão freelancer (evita race condition)
+create or replace function increment_freelance_usage(p_session_id uuid)
+returns table(messages_used integer, messages_limit integer) as $$
+  update freelance_sessions
+  set messages_used = messages_used + 1
+  where id = p_session_id
+    and messages_used < messages_limit
+    and expires_at > now()
+  returning messages_used, messages_limit;
+$$ language sql security definer;
+
+-- RPC: contagem de mensagens de hoje para rate limiting
+create or replace function count_messages_today(p_tenant_id uuid)
+returns integer as $$
+  select count(*)::integer
+  from usage_logs
+  where tenant_id = p_tenant_id
+    and created_at >= date_trunc('day', now() at time zone 'utc');
+$$ language sql security definer;
 SQLEOF
 )
 

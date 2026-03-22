@@ -29,6 +29,7 @@ export interface ChatResponse {
   agent?: string
   reason?: string
   upgrade_to?: string
+  tokens_used?: number
 }
 
 function loadAgentPersona(agentId: string): string {
@@ -90,21 +91,25 @@ export async function chat(
 
   const systemPrompt = buildSystemPrompt(agentId, profile, plan)
 
+  // Sliding context window: keep last 15 messages + context_summary injected via system prompt
+  const recentMessages = messages.slice(-15)
+
   const response = await client.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 2048,
     system: systemPrompt,
-    messages: messages.map(m => ({ role: m.role, content: m.content }))
+    messages: recentMessages.map(m => ({ role: m.role, content: m.content }))
   })
 
   const content = response.content[0].type === 'text' ? response.content[0].text : ''
+  const tokensUsed = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0)
 
-  // Check for routing instruction
-  const routingMatch = content.match(/ROUTING:\s*(\{[\s\S]*?\})/)
+  // Check for routing instruction at end of response (match last occurrence)
+  const routingMatch = content.match(/ROUTING:\s*(\{[^}]+\})\s*$/)
   if (routingMatch) {
     try {
       const routing = JSON.parse(routingMatch[1])
-      const cleanContent = content.replace(/ROUTING:\s*\{[\s\S]*?\}/, '').trim()
+      const cleanContent = content.replace(/ROUTING:\s*\{[^}]+\}\s*$/, '').trim()
 
       if (routing.upgrade_hint) {
         return {
@@ -112,7 +117,8 @@ export async function chat(
           content: cleanContent,
           agent: routing.route_to,
           reason: routing.reason,
-          upgrade_to: routing.upgrade_hint
+          upgrade_to: routing.upgrade_hint,
+          tokens_used: tokensUsed,
         }
       }
 
@@ -120,14 +126,15 @@ export async function chat(
         type: 'route',
         content: cleanContent,
         agent: routing.route_to,
-        reason: routing.reason
+        reason: routing.reason,
+        tokens_used: tokensUsed,
       }
     } catch {
       // If JSON parse fails, return as normal message
     }
   }
 
-  return { type: 'message', content }
+  return { type: 'message', content, tokens_used: tokensUsed }
 }
 
 export async function generateBusinessSummary(profile: Omit<BusinessProfile, 'context_summary'>): Promise<string> {
