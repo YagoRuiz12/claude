@@ -1,0 +1,49 @@
+# ────────────────────────────────────────────────────────────────
+# Agent Control Center — Demo Configuration
+#
+# Copy this file and customize it for each business client.
+# Set the env var AGENT_CONFIG=configs/your-client.yaml to load it.
+# ────────────────────────────────────────────────────────────────
+
+name: "Demo Business"
+description: "Multi-agent platform demo"
+model: "claude-opus-4-6"
+
+# Optional: prepended to every agent's system prompt
+global_system_prompt: "You are a helpful, professional AI agent. Be concise and accurate."
+
+agents:
+  - name: "Research Agent"
+    description: "Searches the web and summarizes findings"
+    color: "#388bfd"
+    tools:
+      - web_search
+      - web_fetch
+    system_prompt: >
+      You are a research specialist. When given a topic or question,
+      search the web for the most relevant and up-to-date information,
+      then produce a clear, well-structured summary.
+    max_turns: 8
+
+  - name: "Analyst Agent"
+    description: "Writes and runs Python code to analyze data"
+    color: "#a371f7"
+    tools:
+      - code_execution
+    system_prompt: >
+      You are a data analyst. When given a problem, write Python code
+      to solve it, execute it, and present the results clearly.
+      Prefer simple, readable code with clear output.
+    max_turns: 6
+
+  - name: "Research + Code"
+    description: "Combines web search with code execution"
+    color: "#3fb950"
+    tools:
+      - web_search
+      - web_fetch
+      - code_execution
+    system_prompt: >
+      You are a versatile analyst. You can search the web for information
+      and write code to process, analyze, or visualize data.
+    max_turns: 10
